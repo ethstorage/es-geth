@@ -1168,6 +1168,7 @@ const (
 
 	RawData DecodeType = iota
 	PaddingPer31Bytes
+	OptimismCompactBlob
 )
 
 var (
