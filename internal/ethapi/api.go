@@ -702,7 +702,12 @@ func applyMessage(ctx context.Context, b Backend, args TransactionArgs, state *s
 	if msg.BlobGasFeeCap != nil && msg.BlobGasFeeCap.BitLen() == 0 {
 		blockContext.BlobBaseFee = new(big.Int)
 	}
-	evm := b.GetEVM(ctx, state, header, vmConfig, blockContext)
+
+	var isEthStorage = false
+	if ctx.Value(esKey{}) == true {
+		isEthStorage = true
+	}
+	evm := b.GetEVM(ctx, state, header, &vm.Config{NoBaseFee: true, IsEthStorage: isEthStorage}, blockContext)
 	if precompiles != nil {
 		evm.SetPrecompiles(precompiles)
 	}
@@ -805,6 +810,14 @@ func (api *BlockChainAPI) SimulateV1(ctx context.Context, opts simOpts, blockNrO
 		fullTx:         opts.ReturnFullTransactions,
 	}
 	return sim.execute(ctx, opts.BlockStateCalls)
+}
+
+type esKey struct{}
+
+// EsCall is similar with Call, and support EthStorage precompiles
+func (s *BlockChainAPI) EsCall(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *override.StateOverride, blockOverrides *override.BlockOverrides) (hexutil.Bytes, error) {
+	ctx = context.WithValue(ctx, esKey{}, true)
+	return s.Call(ctx, args, blockNrOrHash, overrides, blockOverrides)
 }
 
 // DoEstimateGas returns the lowest possible gas limit that allows the transaction to run
