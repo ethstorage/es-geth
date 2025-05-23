@@ -143,7 +143,7 @@ var PrecompiledContractsPrague = PrecompiledContracts{
 
 var PrecompiledContractsBLS = PrecompiledContractsPrague
 
-var PrecompiledContractsVerkle = PrecompiledContractsPrague
+var PrecompiledContractsVerkle = PrecompiledContractsBerlin
 
 // PrecompiledContractsES contains the EthStorage related precompiles
 var PrecompiledContractsES = map[common.Address]PrecompiledContract{
