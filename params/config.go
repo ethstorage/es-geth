@@ -1178,6 +1178,7 @@ type Rules struct {
 	IsBerlin, IsLondon                                      bool
 	IsMerge, IsShanghai, IsCancun, IsPrague, IsOsaka        bool
 	IsVerkle                                                bool
+	IsEthStorage                                            bool
 }
 
 // Rules ensures c's ChainID is not nil.
