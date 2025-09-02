@@ -26,7 +26,7 @@ import (
 
 // memoryGasCost calculates the quadratic gas for memory expansion. It does so
 // only for the memory region that is expanded, not the total memory.
-func memoryGasCost(mem *Memory, newMemSize uint64) (uint64, error) {
+func memoryGasCost(evm *EVM, mem *Memory, newMemSize uint64) (uint64, error) {
 	if newMemSize == 0 {
 		return 0, nil
 	}
@@ -45,6 +45,10 @@ func memoryGasCost(mem *Memory, newMemSize uint64) (uint64, error) {
 		square := newMemSizeWords * newMemSizeWords
 		linCoef := newMemSizeWords * params.MemoryGas
 		quadCoef := square / params.QuadCoeffDiv
+		if evm != nil && evm.Config.IsEthStorage {
+			quadCoef = 0
+			linCoef = newMemSizeWords * params.MemoryGas
+		}
 		newTotalFee := linCoef + quadCoef
 
 		fee := newTotalFee - mem.lastGasCost
@@ -66,7 +70,7 @@ func memoryGasCost(mem *Memory, newMemSize uint64) (uint64, error) {
 func memoryCopierGas(stackpos int) gasFunc {
 	return func(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (GasCosts, error) {
 		// Gas for expanding the memory
-		gas, err := memoryGasCost(mem, memorySize)
+		gas, err := memoryGasCost(evm, mem, memorySize)
 		if err != nil {
 			return GasCosts{}, err
 		}
@@ -233,7 +237,7 @@ func makeGasLog(n uint64) gasFunc {
 			return GasCosts{}, ErrGasUintOverflow
 		}
 
-		gas, err := memoryGasCost(mem, memorySize)
+		gas, err := memoryGasCost(evm, mem, memorySize)
 		if err != nil {
 			return GasCosts{}, err
 		}
@@ -257,7 +261,7 @@ func makeGasLog(n uint64) gasFunc {
 }
 
 func gasKeccak256(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (GasCosts, error) {
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -278,7 +282,7 @@ func gasKeccak256(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memor
 // static cost have a dynamic cost which is solely based on the memory
 // expansion
 func pureMemoryGascost(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (GasCosts, error) {
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -304,7 +308,7 @@ func gasCreate2(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memoryS
 	if evm.readOnly {
 		return GasCosts{}, ErrWriteProtection
 	}
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -325,7 +329,7 @@ func gasCreateEip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	if evm.readOnly {
 		return GasCosts{}, ErrWriteProtection
 	}
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -348,7 +352,7 @@ func gasCreate2Eip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, 
 	if evm.readOnly {
 		return GasCosts{}, ErrWriteProtection
 	}
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -428,7 +432,7 @@ func gasCallIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 		return 0, ErrWriteProtection
 	}
 	// Stateless check
-	memoryGas, err := memoryGasCost(mem, memorySize)
+	memoryGas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}
@@ -461,7 +465,7 @@ func gasCallIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 }
 
 func gasCallCodeIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
-	memoryGas, err := memoryGasCost(mem, memorySize)
+	memoryGas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}
@@ -483,7 +487,7 @@ func gasCallCodeIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memor
 // EIP-8038. CALLCODE executes in the caller's context, so it never creates a
 // new account and has no state-gas component.
 func gasCallCodeIntrinsic8038(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
-	memoryGas, err := memoryGasCost(mem, memorySize)
+	memoryGas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}
@@ -501,7 +505,7 @@ func gasCallCodeIntrinsic8038(evm *EVM, contract *Contract, stack *Stack, mem *M
 }
 
 func gasDelegateCallIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}
@@ -509,7 +513,7 @@ func gasDelegateCallIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *M
 }
 
 func gasStaticCallIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}
@@ -545,7 +549,7 @@ func gasCreateEip8037(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	if evm.readOnly {
 		return GasCosts{}, ErrWriteProtection
 	}
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -570,7 +574,7 @@ func gasCreate2Eip8037(evm *EVM, contract *Contract, stack *Stack, mem *Memory, 
 	if evm.readOnly {
 		return GasCosts{}, ErrWriteProtection
 	}
-	gas, err := memoryGasCost(mem, memorySize)
+	gas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return GasCosts{}, err
 	}
@@ -606,7 +610,7 @@ func executionGasCall8038(evm *EVM, contract *Contract, stack *Stack, mem *Memor
 	if evm.readOnly && transfersValue {
 		return 0, ErrWriteProtection
 	}
-	memoryGas, err := memoryGasCost(mem, memorySize)
+	memoryGas, err := memoryGasCost(evm, mem, memorySize)
 	if err != nil {
 		return 0, err
 	}

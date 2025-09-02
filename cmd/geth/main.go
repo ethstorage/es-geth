@@ -79,6 +79,7 @@ var (
 		utils.BlobPoolFetchProbabilityFlag,
 		utils.SyncModeFlag,
 		utils.SyncTargetFlag,
+		utils.EsURLFlag,
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,
 		utils.SnapshotFlag,

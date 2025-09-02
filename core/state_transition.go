@@ -772,6 +772,7 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// - prepare accessList(post-berlin)
 	// - reset transient storage(EIP-1153)
 	// - enable block-level accessList construction (EIP-7928)
+	rules.IsEthStorage = st.evm.Config.IsEthStorage
 	st.state.Prepare(rules, msg.From, st.evm.Context.Coinbase, msg.To, vm.ActivePrecompiles(rules), msg.AccessList)
 
 	// Initialize the running gas budget with the post-intrinsic remainder.
