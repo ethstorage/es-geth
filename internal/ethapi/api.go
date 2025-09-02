@@ -761,7 +761,11 @@ func doCall(ctx context.Context, b Backend, args TransactionArgs, state *state.S
 	if globalGasCap == 0 {
 		gp = core.NewGasPool(gomath.MaxUint64)
 	}
-	return applyMessage(ctx, b, args, state, header, timeout, gp, &blockCtx, &vm.Config{NoBaseFee: true}, precompiles)
+	var isEthStorage = false
+	if ctx.Value(esKey{}) == true {
+		isEthStorage = true
+	}
+	return applyMessage(ctx, b, args, state, header, timeout, gp, &blockCtx, &vm.Config{NoBaseFee: true, IsEthStorage: isEthStorage}, precompiles)
 }
 
 func applyMessage(ctx context.Context, b Backend, args TransactionArgs, state *state.StateDB, header *types.Header, timeout time.Duration, gp *core.GasPool, blockContext *vm.BlockContext, vmConfig *vm.Config, precompiles vm.PrecompiledContracts) (*core.ExecutionResult, error) {
@@ -886,6 +890,14 @@ func (api *BlockChainAPI) SimulateV1(ctx context.Context, opts simOpts, blockNrO
 		fullTx:         opts.ReturnFullTransactions,
 	}
 	return sim.execute(ctx, opts.BlockStateCalls)
+}
+
+type esKey struct{}
+
+// EsCall is similar with Call, and support EthStorage precompiles
+func (s *BlockChainAPI) EsCall(ctx context.Context, args TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *override.StateOverride, blockOverrides *override.BlockOverrides) (hexutil.Bytes, error) {
+	ctx = context.WithValue(ctx, esKey{}, true)
+	return s.Call(ctx, args, blockNrOrHash, overrides, blockOverrides)
 }
 
 // DoEstimateGas returns the lowest possible gas limit that allows the transaction to run

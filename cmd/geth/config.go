@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/params"
 	"os"
 	"reflect"
 	"runtime"
@@ -290,6 +291,10 @@ func makeFullNode(ctx *cli.Context) *node.Node {
 		syncConfig.TargetBlock = common.HexToHash(target)
 	}
 	utils.RegisterSyncOverrideService(stack, eth, syncConfig)
+
+	if ctx.IsSet(utils.EsURLFlag.Name) {
+		params.EsNodeURL = ctx.String(utils.EsURLFlag.Name)
+	}
 
 	if ctx.Bool(utils.DeveloperFlag.Name) {
 		// Start dev mode.
