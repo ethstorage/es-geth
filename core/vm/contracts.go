@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"math"
 	"math/big"
 	"math/bits"
+	"time"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
@@ -33,6 +35,7 @@ import (
 	patched_big "github.com/ethereum/go-bigmodexpfix/src/math/big"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/bitutil"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/blake2b"
@@ -40,6 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/crypto/secp256r1"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -177,14 +181,20 @@ var PrecompiledContractsP256Verify = PrecompiledContracts{
 	common.BytesToAddress([]byte{0x1, 0x00}): &p256Verify{},
 }
 
+// PrecompiledContractsES contains the EthStorage related precompiles
+var PrecompiledContractsES = map[common.Address]PrecompiledContract{
+	common.BytesToAddress([]byte{3, 0x33, 1}): &esGetBlob{},
+}
+
 var (
-	PrecompiledAddressesOsaka     []common.Address
-	PrecompiledAddressesPrague    []common.Address
-	PrecompiledAddressesCancun    []common.Address
-	PrecompiledAddressesBerlin    []common.Address
-	PrecompiledAddressesIstanbul  []common.Address
-	PrecompiledAddressesByzantium []common.Address
-	PrecompiledAddressesHomestead []common.Address
+	PrecompiledAddressesEthStorage []common.Address
+	PrecompiledAddressesOsaka      []common.Address
+	PrecompiledAddressesPrague     []common.Address
+	PrecompiledAddressesCancun     []common.Address
+	PrecompiledAddressesBerlin     []common.Address
+	PrecompiledAddressesIstanbul   []common.Address
+	PrecompiledAddressesByzantium  []common.Address
+	PrecompiledAddressesHomestead  []common.Address
 )
 
 func init() {
@@ -208,6 +218,9 @@ func init() {
 	}
 	for k := range PrecompiledContractsOsaka {
 		PrecompiledAddressesOsaka = append(PrecompiledAddressesOsaka, k)
+	}
+	for k := range PrecompiledContractsES {
+		PrecompiledAddressesEthStorage = append(PrecompiledAddressesEthStorage, k)
 	}
 }
 
@@ -239,22 +252,27 @@ func ActivePrecompiledContracts(rules params.Rules) PrecompiledContracts {
 
 // ActivePrecompiles returns the precompile addresses enabled with the current configuration.
 func ActivePrecompiles(rules params.Rules) []common.Address {
+	var precompiles []common.Address
 	switch {
 	case rules.IsOsaka:
-		return PrecompiledAddressesOsaka
+		precompiles = PrecompiledAddressesOsaka
 	case rules.IsPrague:
-		return PrecompiledAddressesPrague
+		precompiles = PrecompiledAddressesPrague
 	case rules.IsCancun:
-		return PrecompiledAddressesCancun
+		precompiles = PrecompiledAddressesCancun
 	case rules.IsBerlin:
-		return PrecompiledAddressesBerlin
+		precompiles = PrecompiledAddressesBerlin
 	case rules.IsIstanbul:
-		return PrecompiledAddressesIstanbul
+		precompiles = PrecompiledAddressesIstanbul
 	case rules.IsByzantium:
-		return PrecompiledAddressesByzantium
+		precompiles = PrecompiledAddressesByzantium
 	default:
-		return PrecompiledAddressesHomestead
+		precompiles = PrecompiledAddressesHomestead
 	}
+	if rules.IsEthStorage {
+		precompiles = append(precompiles, PrecompiledAddressesEthStorage...)
+	}
+	return precompiles
 }
 
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
@@ -1451,4 +1469,77 @@ func (c *p256Verify) Run(input []byte) ([]byte, error) {
 
 func (c *p256Verify) Name() string {
 	return "P256VERIFY"
+}
+
+// esGetBlob calls rpc on es-node to get blob data.
+type esGetBlob struct{}
+
+type DecodeType uint64
+
+const (
+	esGetBlobInputLength  = 160
+	maxDataWordLenPerBlob = 4096 // blob size in proto-danksharding
+	defaultCallTimeout    = 10 * time.Second
+
+	RawData DecodeType = iota
+	PaddingPer31Bytes
+	OptimismCompactBlob
+)
+
+var (
+	errEsGetBlobInvalidInputLength = errors.New("invalid input length")
+	rpcCli                         *rpc.Client
+)
+
+func (e *esGetBlob) RequiredGas(input []byte) uint64 {
+	if len(input) != esGetBlobInputLength {
+		return params.EsGetBlobPerWordGas*maxDataWordLenPerBlob + params.EsGetBlobBaseGas
+	}
+
+	len := new(big.Int).SetBytes(getData(input, 64, 32)).Uint64()
+	size := (len + 31) / 32
+
+	return params.EsGetBlobPerWordGas*size + params.EsGetBlobBaseGas
+}
+
+func (e *esGetBlob) Run(input []byte) ([]byte, error) {
+	if len(input) != esGetBlobInputLength {
+		return nil, errEsGetBlobInvalidInputLength
+	}
+
+	kvIndex := new(big.Int).SetBytes(getData(input, 0, 32)).Uint64()
+	encodeType := new(big.Int).SetBytes(getData(input, 32, 32)).Uint64()
+
+	off := new(big.Int).SetBytes(getData(input, 64, 32)).Uint64()
+	len := new(big.Int).SetBytes(getData(input, 96, 32)).Uint64()
+	hash := input[128:160]
+
+	return getBlobFromEsNode(kvIndex, hash, DecodeType(encodeType), off, len)
+}
+
+func getBlobFromEsNode(kvIndex uint64, blobHash []byte, encodeType DecodeType, off, len uint64) ([]byte, error) {
+	var err error
+	ctx := context.Background()
+	if rpcCli == nil {
+		dialCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
+		rpcCli, err = rpc.DialContext(dialCtx, params.EsNodeURL)
+		cancel()
+		if err != nil {
+			return []byte{}, err
+		}
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, defaultCallTimeout)
+	defer cancel()
+	var result hexutil.Bytes
+	err = rpcCli.CallContext(
+		callCtx,
+		&result,
+		"es_getBlob",
+		kvIndex, "0x"+common.Bytes2Hex(blobHash), encodeType, off, len)
+	return result, err
+}
+
+func (e *esGetBlob) Name() string {
+	return "esGetBlob"
 }
